@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Шахматы с ботом + особое правило пешки</title>
+  <style>
+    :root{
+      --light: #f0d9b5; /* можно менять в игре */
+      --dark:  #b58863; /* можно менять в игре */
+      --accent: #0ea5e9;
+      --accent-2: #22c55e;
+      --danger: #ef4444;
+      --bg: #0b1020;
+      --panel: #121a33;
+      --text: #e6ecff;
+      --muted: #94a3b8;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--text); background: radial-gradient(1200px 600px at 25% -10%, #16224a 0%, var(--bg) 60%);
+      min-height:100dvh; display:flex; align-items:center; justify-content:center;
+    }
+    .app{display:grid; grid-template-columns: 1fr 380px; gap:20px; width:min(1200px, 96vw); padding:20px}
+    @media (max-width: 980px){ .app{grid-template-columns: 1fr; } }
+
+    .board-wrap{aspect-ratio:1/1; width:100%; max-width: min(86vw, 720px); margin:0 auto;}
+    .board{position:relative; width:100%; height:100%; border-radius:18px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .grid{display:grid; grid-template-columns: repeat(8,1fr); grid-template-rows: repeat(8,1fr); width:100%; height:100%}
+    .sq{position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; user-select:none}
+    .sq.light{background:var(--light)}
+    .sq.dark{background:var(--dark)}
+    .sq.highlight{ outline: 3px solid rgba(14,165,233,.6); outline-offset:-3px }
+    .sq.lastmove{ box-shadow: inset 0 0 0 9999px rgba(250, 204, 21, 0.25) }
+
+    .piece{ position:absolute; width:90%; height:90%; background-size:contain; background-position:center; background-repeat:no-repeat; filter: drop-shadow(0 10px 12px rgba(0,0,0,.35)); transition: transform .12s ease }
+    .piece.dragging{ opacity:.9; transform:scale(1.05) }
+
+    .dot{ position:absolute; width:22%; height:22%; border-radius:50%; background:rgba(14,165,233,.85); box-shadow:0 2px 6px rgba(0,0,0,.3) }
+    .capture-ring{position:absolute; inset:14%; border:5px solid rgba(239,68,68,.9); border-radius:50%}
+    .mimic-star{ position:absolute; top:6%; right:6%; width:22px; height:22px; border-radius:50%; background:var(--accent-2); color:white; display:grid; place-items:center; font-size:12px; font-weight:700; }
+
+    .sidepanel{background:var(--panel); border-radius:18px; padding:16px; box-shadow: 0 16px 40px rgba(0,0,0,.45)}
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+    .row + .row{margin-top:12px}
+    .title{font-size:22px; font-weight:800; letter-spacing:.3px; margin-bottom:8px}
+    .muted{color:var(--muted); font-size:13px}
+    .btn{background:#1f2a4c; color:#dbeafe; padding:10px 14px; border:none; border-radius:12px; cursor:pointer; font-weight:700}
+    .btn:hover{filter:brightness(1.08)}
+    select, input[type="number"], input[type="text"]{ background:#0f1530; border:1px solid #1e2b57; color:#c7d2fe; padding:10px 12px; border-radius:12px }
+    .flex{display:flex; gap:10px; align-items:center}
+    .stack{display:flex; flex-direction:column; gap:6px}
+    .badg{display:inline-flex; align-items:center; gap:6px; background:#0f1530; border:1px solid #1e2b57; padding:6px 10px; border-radius:999px; font-size:12px}
+    .legend{display:flex; flex-wrap:wrap; gap:8px; margin-top:6px}
+    .sep{height:1px; background:#1b254d; margin:10px 0}
+    .hint{font-size:12px; color:#a1a1aa}
+    .log{height:180px; overflow:auto; background:#0f1530; border:1px solid #1e2b57; border-radius:12px; padding:8px}
+    .move{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="board-wrap">
+      <div class="board">
+        <div id="grid" class="grid"></div>
+      </div>
+    </div>
+    <div class="sidepanel">
+      <div class="title">Шахматы с ботом</div>
+      <div class="row">
+        <div class="stack" style="min-width:160px">
+          <label>Сторона игрока</label>
+          <select id="sideSel">
+            <option value="w">Белые</option>
+            <option value="b">Чёрные</option>
+          </select>
+        </div>
+        <div class="stack" style="min-width:160px">
+          <label>Сложность (глубина)</label>
+          <input id="depthSel" type="number" min="1" max="5" step="1" value="3" />
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="newGameBtn">Новая партия</button>
+        <button class="btn" id="flipBtn">Повернуть доску</button>
+      </div>
+      <div class="sep"></div>
+      <div class="row">
+        <div class="stack">
+          <label>Цвет светлых клеток</label>
+          <input id="lightColor" type="color" value="#f0d9b5" />
+        </div>
+        <div class="stack">
+          <label>Цвет тёмных клеток</label>
+          <input id="darkColor" type="color" value="#b58863" />
+        </div>
+      </div>
+      <div class="legend">
+        <span class="badg"><span style="width:12px;height:12px;border-radius:50%;background:rgba(14,165,233,.85);"></span>Ход</span>
+        <span class="badg"><span style="width:12px;height:12px;border:3px solid rgba(239,68,68,.9);border-radius:50%"></span>Бить</span>
+        <span class="badg"><span style="width:16px;height:16px;border-radius:50%;background:var(--accent-2);"></span>Мимикрия пешки (1 ход)</span>
+      </div>
+      <div class="sep"></div>
+      <div class="stack">
+        <label>Журнал</label>
+        <div id="log" class="log"></div>
+      </div>
+      <div class="sep"></div>
+      <div class="hint">Особое правило: любая <b>пешка</b> один раз за игру может <b>по диагонали</b> «съесть» свою фигуру (пешка остаётся на месте). На <b>следующем</b> своём ходе эта пешка может ходить как съеденная фигура. Ход должен быть легальным (король не под шахом и т.д.).</div>
+    </div>
+  </div>
+
+  <script>
+    /********************
+     * Конфиг спрайтов  *
+     ********************/
+    // Положите PNG рядом с этим HTML-файлом с такими именами:
+    // white_pawn.png, white_knight.png, white_bishop.png, white_rook.png, white_queen.png, white_king.png
+    // black_pawn.png, black_knight.png, black_bishop.png, black_rook.png, black_queen.png, black_king.png
+    const pieceImg = {
+      wP: 'white_pawn.png',  wN: 'white_knight.png', wB: 'white_bishop.png', wR: 'white_rook.png', wQ: 'white_queen.png', wK: 'white_king.png',
+      bP: 'black_pawn.png',  bN: 'black_knight.png', bB: 'black_bishop.png', bR: 'black_rook.png', bQ: 'black_queen.png', bK: 'black_king.png'
+    };
+
+    /********************
+     * Модель доски     *
+     ********************/
+    const EMPTY = null;
+    const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+    const files = ['a','b','c','d','e','f','g','h'];
+    const dirs = {
+      N: [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]],
+      B: [[-1,-1],[-1,1],[1,-1],[1,1]],
+      R: [[-1,0],[1,0],[0,-1],[0,1]],
+      Q: [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]],
+      K: [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]],
+    };
+
+    function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+
+    function algebraic(r,c){ return files[c] + (8 - r); }
+
+    function inside(r,c){ return r>=0 && r<8 && c>=0 && c<8 }
+
+    function parseFEN(fen){
+      const [boardStr, turn, castling, ep] = fen.split(' ');
+      const rows = boardStr.split('/');
+      const board = Array.from({length:8},()=>Array(8).fill(EMPTY));
+      rows.forEach((row, rIdx)=>{
+        let c=0;
+        for(const ch of row){
+          if(/\d/.test(ch)){ c += parseInt(ch,10); }
+          else{
+            const isWhite = ch===ch.toUpperCase();
+            const type = ch.toUpperCase();
+            const code = (isWhite?'w':'b') + type;
+            board[rIdx][c++] = { code, type, color: isWhite?'w':'b', moved:false, pawn:{mimic:null, used:false} };
+          }
+        }
+      });
+      return {board, turn, castling, ep, half:0, full:1, lastMove:null};
+    }
+
+    /*****************************************
+     * Рендер, взаимодействие, повороты доски *
+     *****************************************/
+    const grid = document.getElementById('grid');
+    let flipped = false; // false: белые снизу
+
+    function setupGrid(){
+      grid.innerHTML='';
+      for(let r=0;r<8;r++){
+        for(let c=0;c<8;c++){
+          const d=document.createElement('div');
+          d.className='sq ' + ((r+c)%2===0?'light':'dark');
+          d.dataset.r=r; d.dataset.c=c; d.dataset.coord=algebraic(r,c);
+          grid.appendChild(d);
+        }
+      }
+    }
+
+    function squareAt(r,c){ return grid.querySelector(`.sq[data-r="${r}"][data-c="${c}"]`); }
+
+    function render(state){
+      // очистка
+      [...grid.querySelectorAll('.piece,.dot,.capture-ring,.mimic-star')].forEach(n=>n.remove());
+      // подсветка последнего хода
+      [...grid.querySelectorAll('.sq')].forEach(n=>n.classList.remove('lastmove'));
+      if(state.lastMove){
+        const {from,to, special} = state.lastMove;
+        const [fr,fc] = from; const [tr,tc] = to||from;
+        squareAt(fr,fc)?.classList.add('lastmove');
+        squareAt(tr,tc)?.classList.add('lastmove');
+      }
+      // флип отображения индексов
+      const order = [];
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++) order.push([r,c]);
+      const drawn = flipped ? order.reverse() : order;
+
+      drawn.forEach(([r,c])=>{
+        const p = state.board[r][c];
+        if(!p) return;
+        const sq = squareAt(r,c);
+        const img = document.createElement('div');
+        img.className='piece';
+        const key = p.color + p.type;
+        img.style.backgroundImage = pieceImg[key] ? `url(${pieceImg[key]})` : 'none';
+        if(!pieceImg[key]){ img.textContent = p.type; img.style.fontWeight='900'; img.style.fontSize='42px'; }
+        img.dataset.r=r; img.dataset.c=c; img.dataset.type=p.type; img.dataset.color=p.color;
+        if(p.type==='P' && p.pawn.mimic){
+          const star=document.createElement('div');
+          star.className='mimic-star';
+          star.title = 'Эта пешка может 1 ход ходить как: ' + p.pawn.mimic;
+          star.textContent='★';
+          img.appendChild(star);
+        }
+        sq.appendChild(img);
+      });
+    }
+
+    /**********************
+     * Правила и ходы     *
+     **********************/
+    function kingPos(state, color){
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+        const p = state.board[r][c];
+        if(p && p.color===color && p.type==='K') return [r,c];
+      }
+      return null;
+    }
+
+    function inCheck(state, color){
+      const [kr,kc] = kingPos(state, color) || [];
+      if(kr===undefined) return false;
+      // проверим атаки соперника
+      const enemy = color==='w'?'b':'w';
+      // пешки бьют вперёд по диагонали
+      const dr = enemy==='w' ? -1 : 1;
+      for(const dc of [-1,1]){
+        const r=kr+dr, c=kc+dc;
+        if(inside(r,c)){
+          const p=state.board[r][c];
+          if(p && p.color===enemy && p.type==='P') return true;
+        }
+      }
+      // кони
+      for(const [dr2,dc2] of dirs.N){
+        const r=kr+dr2, c=kc+dc2;
+        if(inside(r,c)){
+          const p=state.board[r][c];
+          if(p && p.color===enemy && p.type==='N') return true;
+        }
+      }
+      // линии (B/R/Q)
+      const sliders=[['B',dirs.B],['R',dirs.R],['Q',dirs.Q]];
+      for(const [tt,vecs] of sliders){
+        for(const [dr3,dc3] of vecs){
+          let r=kr+dr3, c=kc+dc3;
+          while(inside(r,c)){
+            const p=state.board[r][c];
+            if(p){
+              if(p.color===enemy && (p.type===tt || p.type==='Q')) return true;
+              break;
+            }
+            r+=dr3; c+=dc3;
+          }
+        }
+      }
+      // король
+      for(const [dr4,dc4] of dirs.K){
+        const r=kr+dr4, c=kc+dc4;
+        if(inside(r,c)){
+          const p=state.board[r][c];
+          if(p && p.color===enemy && p.type==='K') return true;
+        }
+      }
+      return false;
+    }
+
+    function generateMoves(state, color){
+      const moves=[];
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+        const p = state.board[r][c];
+        if(!p || p.color!==color) continue;
+        if(p.type==='P'){
+          genPawn(r,c,p, moves, state);
+        } else if(p.type==='N'){
+          for(const [dr,dc] of dirs.N){ pushStep(r,c,dr,dc,p,moves,state); }
+        } else if(p.type==='B'){
+          pushRays(r,c,dirs.B,p,moves,state);
+        } else if(p.type==='R'){
+          pushRays(r,c,dirs.R,p,moves,state);
+        } else if(p.type==='Q'){
+          pushRays(r,c,dirs.Q,p,moves,state);
+        } else if(p.type==='K'){
+          for(const [dr,dc] of dirs.K){ pushStep(r,c,dr,dc,p,moves,state,true); }
+          genCastles(r,c,p,moves,state);
+        }
+        // МИМИКРИЯ пешки (один ход): если у пешки p.pawn.mimic установлен
+        if(p.type==='P' && p.pawn.mimic){
+          genMimicMoves(r,c,p,moves,state);
+        }
+        // Особое правило: разовый съедание своей фигуры по диагонали (пешка остаётся)
+        if(p.type==='P' && !p.pawn.used){
+          genSelfEat(r,c,p,moves,state);
+        }
+      }
+      // отфильтруем по шаху
+      return moves.filter(m=>{
+        const ns = applyMove(clone(state), m);
+        return !inCheck(ns, color);
+      });
+    }
+
+    function pushStep(r,c,dr,dc,p,moves,state, king=false){
+      const r2=r+dr, c2=c+dc; if(!inside(r2,c2)) return;
+      const t=state.board[r2][c2];
+      if(!t){ moves.push({from:[r,c], to:[r2,c2], piece:p, capture:null}); }
+      else if(t.color!==p.color){ moves.push({from:[r,c], to:[r2,c2], piece:p, capture:[r2,c2]}); }
+    }
+
+    function pushRays(r,c,vecs,p,moves,state){
+      for(const [dr,dc] of vecs){
+        let r2=r+dr, c2=c+dc;
+        while(inside(r2,c2)){
+          const t=state.board[r2][c2];
+          if(!t){ moves.push({from:[r,c], to:[r2,c2], piece:p, capture:null}); }
+          else{ if(t.color!==p.color) moves.push({from:[r,c], to:[r2,c2], piece:p, capture:[r2,c2]}); break; }
+          r2+=dr; c2+=dc;
+        }
+      }
+    }
+
+    function genPawn(r,c,p,moves,state){
+      const dir = p.color==='w' ? -1 : 1;
+      const startRank = p.color==='w' ? 6 : 1;
+      const r1 = r + dir;
+      if(inside(r1,c) && !state.board[r1][c]){
+        // обычный ход
+        moves.push({from:[r,c], to:[r1,c], piece:p, capture:null, promo: (r1===0||r1===7)});
+        const r2 = r + 2*dir;
+        if(r===startRank && inside(r2,c) && !state.board[r2][c]){
+          moves.push({from:[r,c], to:[r2,c], piece:p, capture:null});
+        }
+      }
+      // взятия по диагонали
+      for(const dc of [-1,1]){
+        const rr=r+dir, cc=c+dc;
+        if(!inside(rr,cc)) continue;
+        const t=state.board[rr][cc];
+        if(t && t.color!==p.color){ moves.push({from:[r,c], to:[rr,cc], piece:p, capture:[rr,cc], promo:(rr===0||rr===7)}); }
+      }
+      // (для краткости эн-пассант не реализуем в этой версии)
+    }
+
+    function genCastles(r,c,p,moves,state){
+      if(p.moved) return;
+      const color=p.color; const row = color==='w'?7:0;
+      if(r!==row || c!==4) return; // король должен быть на е1/е8
+      if(inCheck(state,color)) return; // нельзя рокировать под шахом
+      // короткая
+      if(canCastle(state,color,'k')){
+        if(!state.board[row][5] && !state.board[row][6]){
+          // клетки не под боем
+          const s1 = clone(state); s1.board[row][5]=s1.board[row][4]; s1.board[row][4]=null; if(!inCheck(s1,color)){
+            const s2 = clone(s1); s2.board[row][6]=s2.board[row][5]; s2.board[row][5]=null; if(!inCheck(s2,color)){
+              moves.push({from:[r,c], to:[row,6], piece:p, castle:'K'});
+            }
+          }
+        }
+      }
+      // длинная
+      if(canCastle(state,color,'q')){
+        if(!state.board[row][1] && !state.board[row][2] && !state.board[row][3]){
+          const s1 = clone(state); s1.board[row][3]=s1.board[row][4]; s1.board[row][4]=null; if(!inCheck(s1,color)){
+            const s2 = clone(s1); s2.board[row][2]=s2.board[row][3]; s2.board[row][3]=null; if(!inCheck(s2,color)){
+              moves.push({from:[r,c], to:[row,2], piece:p, castle:'Q'});
+            }
+          }
+        }
+      }
+    }
+
+    function canCastle(state,color,side){
+      const row=color==='w'?7:0;
+      const rookCol = side==='k'?7:0;
+      const rook = state.board[row][rookCol];
+      const king = state.board[row][4];
+      if(!rook || !king) return false;
+      if(rook.type!=='R' || rook.color!==color || rook.moved) return false;
+      if(king.type!=='K' || king.moved) return false;
+      return true;
+    }
+
+    function genMimicMoves(r,c,p,moves,state){
+      const t = p.pawn.mimic; // 'N'|'B'|'R'|'Q'|'K'|'P'
+      if(!t) return;
+      const fake = {type:t, color:p.color};
+      if(t==='N') for(const [dr,dc] of dirs.N) pushStep(r,c,dr,dc,fake,moves,state);
+      if(t==='B') pushRays(r,c,dirs.B,fake,moves,state);
+      if(t==='R') pushRays(r,c,dirs.R,fake,moves,state);
+      if(t==='Q') pushRays(r,c,dirs.Q,fake,moves,state);
+      if(t==='K') for(const [dr,dc] of dirs.K) pushStep(r,c,dr,dc,fake,moves,state,true);
+      if(t==='P') genPawn(r,c,fake,moves,state); // смысл немного странный, но допустим
+      // отметим, что это именно «мимикрия» — на один ход
+      moves.forEach(m=>{ if(m.from[0]===r && m.from[1]===c) m.mimicMove=true; });
+    }
+
+    function genSelfEat(r,c,p,moves,state){
+      const dir = p.color==='w' ? -1 : 1;
+      for(const dc of [-1,1]){
+        const rr=r+dir, cc=c+dc; if(!inside(rr,cc)) continue;
+        const t=state.board[rr][cc];
+        if(t && t.color===p.color){
+          // Снятие своей фигуры, пешка остаётся на месте, получает право мимикрии
+          moves.push({from:[r,c], to:[r,c], piece:p, selfEat:[rr,cc], gain:t.type});
+        }
+      }
+    }
+
+    function applyMove(state, m){
+      const b=state.board; const [r,c]=m.from; const p = b[r][c];
+      // self-eat
+      if(m.selfEat){
+        const [er,ec]=m.selfEat; b[er][ec]=null; // снимаем свою фигуру
+        p.pawn.mimic = m.gain; p.pawn.used = true; // активируем право мимикрии на следующий ход
+        state.turn = state.turn==='w'?'b':'w';
+        state.lastMove = {from:[r,c], to:[r,c], special:'selfEat'};
+        return state;
+      }
+      // обычные перемещения
+      // рокировка
+      if(m.castle){
+        const color=p.color; const row = color==='w'?7:0;
+        if(m.castle==='K'){
+          // king to g, rook h->f
+          b[row][6]=p; b[r][c]=null; p.moved=true;
+          const rook=b[row][7]; b[row][5]=rook; b[row][7]=null; if(rook) rook.moved=true;
+          state.turn = state.turn==='w'?'b':'w';
+          state.lastMove = {from:[r,c], to:[row,6], special:'castleK'};
+          return state;
+        } else { // 'Q'
+          b[row][2]=p; b[r][c]=null; p.moved=true;
+          const rook=b[row][0]; b[row][3]=rook; b[row][0]=null; if(rook) rook.moved=true;
+          state.turn = state.turn==='w'?'b':'w';
+          state.lastMove = {from:[r,c], to:[row,2], special:'castleQ'};
+          return state;
+        }
+      }
+
+      const [tr,tc]=m.to;
+      if(m.capture){ const [cr,cc]=m.capture; b[cr][cc]=null; }
+      // промо пешки — в ферзя (Q) по умолчанию
+      if(p.type==='P' && m.promo){
+        b[tr][tc] = { code:p.color+'Q', type:'Q', color:p.color, moved:true };
+        b[r][c]=null;
+      } else {
+        // если пешка делала «мимик»-ход — после него сбрасываем право
+        if(p.type==='P' && p.pawn && m.mimicMove){ p.pawn.mimic=null; }
+        b[tr][tc]=p; b[r][c]=null; p.moved=true;
+      }
+      state.turn = state.turn==='w'?'b':'w';
+      state.lastMove = {from:[r,c], to:[tr,tc]};
+      return state;
+    }
+
+    /**********************
+     * Оценка и ИИ        *
+     **********************/
+    const pieceVal = { P:100, N:320, B:330, R:500, Q:900, K:20000 };
+
+    function evaluate(state){
+      let score=0;
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+        const p=state.board[r][c]; if(!p) continue;
+        const v = pieceVal[p.type] || 0;
+        score += (p.color==='w'? +v : -v);
+        // небольшой бонус за центр
+        if(['d','e'].includes(files[c]) && [3,4].includes(r)) score += (p.color==='w'?5:-5);
+        // небольшой бонус за право мимикрии пешки
+        if(p.type==='P' && p.pawn && p.pawn.mimic){ score += (p.color==='w'?25:-25); }
+      }
+      // штраф, если в шахе
+      if(inCheck(state,'w')) score -= 30;
+      if(inCheck(state,'b')) score += 30;
+      return score;
+    }
+
+    function bestMove(state, depth){
+      const color = state.turn;
+      const maxPlayer = (color==='w');
+      const [score, move] = alphabeta(state, depth, -1e9, 1e9, maxPlayer);
+      return move;
+    }
+
+    function alphabeta(state, depth, alpha, beta, maximizing){
+      const color = state.turn;
+      if(depth===0){ return [evaluate(state), null]; }
+      const moves = generateMoves(state, color);
+      if(moves.length===0){
+        // мат или пат
+        if(inCheck(state,color)) return [ maximizing? -1e8 : 1e8, null ];
+        return [0, null];
+      }
+      let best=null;
+      if(maximizing){
+        let value=-1e9;
+        for(const m of moves){
+          const ns = applyMove(clone(state), m);
+          const [sc] = alphabeta(ns, depth-1, alpha, beta, false);
+          if(sc>value){ value=sc; best=m; }
+          alpha = Math.max(alpha, value);
+          if(alpha>=beta) break;
+        }
+        return [value, best];
+      } else {
+        let value=1e9;
+        for(const m of moves){
+          const ns = applyMove(clone(state), m);
+          const [sc] = alphabeta(ns, depth-1, alpha, beta, true);
+          if(sc<value){ value=sc; best=m; }
+          beta = Math.min(beta, value);
+          if(alpha>=beta) break;
+        }
+        return [value, best];
+      }
+    }
+
+    /**********************
+     * Игра: ввод мышью   *
+     **********************/
+    let state = parseFEN(START_FEN);
+    let humanSide = 'w';
+
+    function newGame(){
+      state = parseFEN(START_FEN);
+      humanSide = document.getElementById('sideSel').value;
+      flipped = (humanSide==='b');
+      render(state); drawTurn(); maybeBot();
+      clearLog(); log('Новая партия. Вы играете за ' + (humanSide==='w'?'белых':'чёрных'))
+    }
+
+    function drawTurn(){
+      [...grid.querySelectorAll('.sq')].forEach(n=>n.classList.remove('highlight'));
+      const toMove = state.turn==='w'?'Белые':'Чёрные';
+    }
+
+    let sel=null; let legal=[];
+
+    grid.addEventListener('click', (e)=>{
+      const cell = e.target.closest('.sq'); if(!cell) return;
+      const r=+cell.dataset.r, c=+cell.dataset.c; const p=state.board[r][c];
+      if(sel && tryMakeFromSel(r,c)) return;
+      // выбор своей фигуры, если наш ход
+      if(state.turn===humanSide && p && p.color===humanSide){
+        sel=[r,c]; legal = generateMoves(state, humanSide).filter(m=> m.from[0]===r && m.from[1]===c );
+        showHints(legal);
+      }
+    });
+
+    function showHints(mvs){
+      [...grid.querySelectorAll('.dot,.capture-ring')].forEach(n=>n.remove());
+      [...grid.querySelectorAll('.sq')].forEach(n=>n.classList.remove('highlight'));
+      if(!sel) return;
+      const [r,c]=sel; squareAt(r,c).classList.add('highlight');
+      for(const m of mvs){
+        if(m.selfEat){
+          const [er,ec]=m.selfEat; const el=squareAt(er,ec); const ring=document.createElement('div'); ring.className='capture-ring'; el.appendChild(ring);
+        } else if(m.capture){
+          const [rr,cc]=m.capture; const el=squareAt(rr,cc); const ring=document.createElement('div'); ring.className='capture-ring'; el.appendChild(ring);
+        } else {
+          const [rr,cc]=m.to; const el=squareAt(rr,cc); const dot=document.createElement('div'); dot.className='dot'; el.appendChild(dot);
+        }
+      }
+    }
+
+    function tryMakeFromSel(r,c){
+      if(!sel) return false; const [sr,sc]=sel;
+      const m = legal.find(x=>{
+        if(x.selfEat){ return r===sr && c===sc && x.selfEat; }
+        return x.to && x.to[0]===r && x.to[1]===c;
+      });
+      if(!m) return false;
+      state = applyMove(state, m);
+      render(state); sel=null; legal=[];
+      // лог
+      let moveText = moveToSAN(m);
+      log((state.turn==='w'?'... ':'') + moveText);
+      // ход бота
+      setTimeout(maybeBot, 10);
+      return true;
+    }
+
+    function moveToSAN(m){
+      if(m.selfEat){ return `Пешка ${algebraic(...m.from)} съела свою фигуру на ${algebraic(...m.selfEat)} (мимикрия: ${m.gain})`; }
+      const piece = m.piece.type; const from = algebraic(...m.from); const to = algebraic(...m.to);
+      if(m.castle==='K') return '0-0'; if(m.castle==='Q') return '0-0-0';
+      const cap = m.capture? 'x' : '-';
+      return `${piece}${from}${cap}${to}` + (m.promo? '=Q':'');
+    }
+
+    function maybeBot(){
+      const depth = Math.max(1, Math.min(5, parseInt(document.getElementById('depthSel').value)||3));
+      if(state.turn!==humanSide){
+        // ходит бот
+        const mv = bestMove(clone(state), depth) || null;
+        if(!mv){ log('Нет ходов. ' + (inCheck(state, state.turn)? 'Мат.' : 'Пат.')); return; }
+        state = applyMove(state, mv);
+        render(state);
+        log('Бот: ' + moveToSAN(mv));
+      }
+    }
+
+    /**********************
+     * UI и вспомогательное
+     **********************/
+    function log(s){ const el=document.getElementById('log'); const d=document.createElement('div'); d.className='move'; d.textContent=s; el.appendChild(d); el.scrollTop=el.scrollHeight; }
+    function clearLog(){ document.getElementById('log').innerHTML=''; }
+
+    document.getElementById('newGameBtn').onclick = ()=> newGame();
+    document.getElementById('flipBtn').onclick = ()=>{ flipped=!flipped; render(state); };
+    document.getElementById('sideSel').onchange = ()=>{};
+    document.getElementById('lightColor').oninput = (e)=>{ document.documentElement.style.setProperty('--light', e.target.value); };
+    document.getElementById('darkColor').oninput  = (e)=>{ document.documentElement.style.setProperty('--dark',  e.target.value); };
+
+    // старт
+    setupGrid(); render(state); newGame();
+  </script>
+</body>
+</html>
