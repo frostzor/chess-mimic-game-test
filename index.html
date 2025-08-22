@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Шахматы с ботом + особое правило пешки</title>
+  <title>Mimic chess</title>
   <style>
     :root{
       --light: #f0d9b5; /* можно менять в игре */
@@ -67,32 +67,32 @@
       </div>
     </div>
     <div class="sidepanel">
-      <div class="title">Шахматы с ботом</div>
+      <div class="title">Mimic chess + Bot</div>
       <div class="row">
         <div class="stack" style="min-width:160px">
-          <label>Сторона игрока</label>
+          <label>Sides</label>
           <select id="sideSel">
-            <option value="w">Белые</option>
-            <option value="b">Чёрные</option>
+            <option value="w">White</option>
+            <option value="b">Black</option>
           </select>
         </div>
         <div class="stack" style="min-width:160px">
-          <label>Сложность (глубина)</label>
+          <label>Difficulty</label>
           <input id="depthSel" type="number" min="1" max="5" step="1" value="3" />
         </div>
       </div>
       <div class="row">
-        <button class="btn" id="newGameBtn">Новая партия</button>
-        <button class="btn" id="flipBtn">Повернуть доску</button>
+        <button class="btn" id="newGameBtn">New Game</button>
+        <button class="btn" id="flipBtn">Swap sides (future upt)</button>
       </div>
       <div class="sep"></div>
       <div class="row">
         <div class="stack">
-          <label>Цвет светлых клеток</label>
+          <label>Color 1</label>
           <input id="lightColor" type="color" value="#f0d9b5" />
         </div>
         <div class="stack">
-          <label>Цвет тёмных клеток</label>
+          <label>Color 2</label>
           <input id="darkColor" type="color" value="#b58863" />
         </div>
       </div>
@@ -103,11 +103,11 @@
       </div>
       <div class="sep"></div>
       <div class="stack">
-        <label>Журнал</label>
+        <label>Log</label>
         <div id="log" class="log"></div>
       </div>
       <div class="sep"></div>
-      <div class="hint">Особое правило: любая <b>пешка</b> один раз за игру может <b>по диагонали</b> «съесть» свою фигуру (пешка остаётся на месте). На <b>следующем</b> своём ходе эта пешка может ходить как съеденная фигура. Ход должен быть легальным (король не под шахом и т.д.).</div>
+      <div class="hint">Rules: any <b>pawn</b> once per game could eat her other pieces.On the next move pawn could use the abilities of the eaten chess piece.</div>
     </div>
   </div>
 
